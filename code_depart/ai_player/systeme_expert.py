@@ -1,7 +1,7 @@
 from swiplserver import PrologMQI
 
 
-class SystemeExpertPortes:
+class SolvingDoors:
     def solve_door(self, door_state):
         if not door_state:
             return None

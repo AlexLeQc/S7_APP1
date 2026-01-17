@@ -1,5 +1,6 @@
 import pygame
-from ai_player.systeme_expert import SystemeExpertPortes
+from ai_player.controller import AIController
+from ai_player.systeme_expert import SolvingDoors
 from Constants import *
 from Maze import *
 from Player import *
@@ -23,6 +24,7 @@ class App:
         self.timer = 0.0
         self.player = Player()
         self.maze = Maze(mazefile)
+        self.ai_controller = AIController(mazefile, self.maze, self.player)
 
     def on_init(self):
         pygame.init()
@@ -47,7 +49,8 @@ class App:
         self._image_surf = pygame.transform.scale(
             self._image_surf, self.player.get_size()
         )
-        self.doorSolver = SystemeExpertPortes()
+        self.doorSolver = SolvingDoors()
+        self.ai_controller.calculate_path_to_exit()
 
     def on_keyboard_input(self, keys):
         if keys[K_RIGHT] or keys[K_d]:
@@ -98,6 +101,12 @@ class App:
 
         if keys[K_ESCAPE]:
             self._running = False
+
+        if keys[K_SPACE]:
+            if self.ai_controller.is_auto_moving:
+                self.ai_controller.stop_auto_move()
+            else:
+                self.ai_controller.start_auto_move_to_exit()
 
     # FONCTION À Ajuster selon votre format d'instruction
     def on_AI_input(self, instruction):
@@ -235,7 +244,8 @@ class App:
             pygame.event.pump()
             keys = pygame.key.get_pressed()
             self.on_keyboard_input(keys)
-            # self.on_AI_input(instruction)
+            next_move = self.ai_controller.get_next_move_towards_exit()
+            self.on_AI_input(next_move)
             if self.on_coin_collision():
                 self.score += 1
             if self.on_treasure_collision():
