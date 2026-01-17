@@ -1,4 +1,5 @@
 import pygame
+from ai_player.systeme_expert import SystemeExpertPortes
 from Constants import *
 from Maze import *
 from Player import *
@@ -46,6 +47,7 @@ class App:
         self._image_surf = pygame.transform.scale(
             self._image_surf, self.player.get_size()
         )
+        self.doorSolver = SystemeExpertPortes()
 
     def on_keyboard_input(self, keys):
         if keys[K_RIGHT] or keys[K_d]:
@@ -74,7 +76,18 @@ class App:
             # you need to win all four rounds to beat it
 
         if keys[K_j]:
-            print(self.maze.look_at_door(self.player, self._display_surf))
+            door_states = self.maze.look_at_door(self.player, self._display_surf)
+            print(f"État portes: {door_states}")
+
+            if door_states:
+                door_state = door_states[0]
+                print(f"Résolution de: {door_state}")
+
+                cle = self.doorSolver.solve_door(door_state)
+
+                if cle:
+                    print(f"Clé trouvé: {cle}")
+                    self.maze.unlock_door(cle)
             # returns the state of the doors you can currently see
             # you need to unlock it by providing the correct key
 

@@ -26,14 +26,13 @@ value(fourth, 4).
 value(fifth, 5).
 value(sixth, 6).
 
-
 % Trouver le nombre de truc dans une liste sans '' (Cette liste à un nombre de cristaux de X)
 longueur([], 0).
 
 longueur([_|Qliste], NombreItems):- 
 	longueur(Qliste, NombreItemsQueue), NombreItems is NombreItemsQueue+1.
 
-% Filtrer une liste en retirant les '' (Cette liste filtrer donne cette liste)
+% Filtrer une liste en retirant les '' (Cette liste filtree donne cette liste)
 filtrer([], []).
 
 filtrer([''|Qliste], ListeFiltree):-
@@ -47,13 +46,15 @@ compter_occurences(Cristaux, Cristal, NbCristaux) :-
     findall(Cristal, (member(Cristal, Cristaux)), Liste),
     longueur(Liste, NbCristaux).
 
-% Trouver a qu'elle position est le dernier cristal d'une certaine couleur (Aide de AI)
+% Trouver a qu'elle position est le dernier cristal d'une certaine couleur
+%Contribution IA: Gemini - 2026-01-16
 dernier_cristal_couleur(Cristaux, Cristal, Position) :-
     findall(P, nth1(P, Cristaux, Cristal), Positions),
     last(Positions, Position).
 
 %Trouver la cle de la porte (Avec cette liste, on resoue la porte avec cette cle)
 resoudre_porte([Serrure|CristauxNonFiltree], Cle) :-
+    serrure(Serrure),
     filtrer(CristauxNonFiltree, Cristaux),
     longueur(Cristaux, NbCristaux),
     resoudre_selon_nombre(Serrure, Cristaux, NbCristaux, Cle).
@@ -115,18 +116,3 @@ resoudre_selon_nombre(_, Cristaux, 6, sixth) :-
     \+ member(red, Cristaux), !.
 
 resoudre_selon_nombre(_, _, 6, fourth).
-
-
-    
-    
-
-
-
-
-    
-
-
-
-
-
-
