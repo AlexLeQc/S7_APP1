@@ -102,12 +102,6 @@ class App:
         if keys[K_ESCAPE]:
             self._running = False
 
-        if keys[K_SPACE]:
-            if self.ai_controller.is_auto_moving:
-                self.ai_controller.stop_auto_move()
-            else:
-                self.ai_controller.start_auto_move_to_exit()
-
     # FONCTION À Ajuster selon votre format d'instruction
     def on_AI_input(self, instruction):
         if instruction == "RIGHT":

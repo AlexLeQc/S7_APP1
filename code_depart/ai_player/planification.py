@@ -53,10 +53,7 @@ def find_path_to_exit(csv_file_path):
     path = a_star_search(maze, start_pos, end_pos)
 
     if path:
-        print(f"Chemin trouvé: {len(path)} étapes")
         print(f"Chemin: {path}")
-    else:
-        print("Aucun chemin trouvé!")
 
     return path
 
