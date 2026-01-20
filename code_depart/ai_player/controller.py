@@ -1,3 +1,4 @@
+from .fighting import Fighting
 from .planification import find_path_to_exit
 from .systeme_expert import SolvingDoors
 
@@ -9,6 +10,11 @@ class AIController:
         self.player = player
         self.path_index = 0
         self.door_solver = SolvingDoors()
+        self.current_perception = None
+        self.is_optimizing = False  # Variable pour suivre l'état
+        self.optimization_complete = False
+        self.is_optimized_for_monster = False
+        self.last_optimization_position = None
 
     def calculate_path_to_exit(self):
         self.current_path = find_path_to_exit(self.maze_file)
@@ -19,6 +25,8 @@ class AIController:
         if not self.current_path or self.path_index >= len(self.current_path):
             self.is_auto_moving = False
             return None
+
+        self.update_perception_and_optimize()
 
         door_action = self.check_and_solve_doors()
         if door_action:
@@ -69,3 +77,47 @@ class AIController:
                 self.maze.unlock_door(cle)
 
         return None
+
+    def update_perception_and_optimize(self):
+        """Met à jour la perception et optimise contre les monstres détectés"""
+        self.current_perception = self.maze.make_perception_list(self.player, None)
+
+        if self.current_perception and len(self.current_perception[3]) > 0:
+            # Il y a des monstres dans la perception
+            monster_rect = self.current_perception[3][0]  # Premier monstre détecté
+
+            # Vérifier si on a déjà optimisé pour ce monstre à cette position
+            current_pos = (int(self.player.x), int(self.player.y))
+
+            if (
+                not self.is_optimized_for_current_monster
+                or self.last_optimization_position != current_pos
+            ):
+                # Trouver l'instance réelle du monstre
+                for monster in self.maze.monsterList:
+                    if monster.rect == monster_rect:
+                        if not self.is_optimizing and not self.optimization_complete:
+                            print(
+                                f"🤖 IA détecte monstre à {monster.rect}, lancement optimisation..."
+                            )
+                            self.is_optimizing = True
+
+                            # Optimisation automatique
+                            battle_fighting = Fighting(monster)
+                            optimal_attrs = battle_fighting.optimize_player_attributes(
+                                self.player
+                            )
+                            self.player.set_attributes(optimal_attrs)
+
+                            self.is_optimizing = False
+                            self.optimization_complete = True
+                            self.is_optimized_for_current_monster = True
+                            self.last_optimization_position = current_pos
+                            print("✅ IA optimisée pour ce monstre !")
+                        break
+        else:
+            # Aucun monstre en vue, réinitialiser
+            self.is_optimized_for_current_monster = False
+            self.optimization_complete = False
+            self.is_optimizing = Falsete = False
+            self.is_optimizing = False
