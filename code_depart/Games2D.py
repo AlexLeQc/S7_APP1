@@ -52,7 +52,10 @@ class App:
             self._image_surf, self.player.get_size()
         )
         self.doorSolver = SolvingDoors()
-        self.fighting = Fighting(self.maze.monsterList[0])
+        if self.maze.monsterList:
+            self.fighting = Fighting(self.maze.monsterList[0])
+        else:
+            self.fighting = None
         self.ai_controller.calculate_path_to_exit()
 
     def on_keyboard_input(self, keys):
@@ -103,31 +106,6 @@ class App:
             self.maze.unlock_door("first")
             # returns true if the door is unlocked, false if the answer is incorrect and the door remains locked
             # if the door is unlocked you can pass through it (no visible change... yet)
-
-        if keys[K_o]:  # 'O' pour "Optimize"
-            if (
-                self.current_perception_list
-                and len(self.current_perception_list[3]) > 0
-            ):
-                # Trouver le monstre le plus proche dans la perception
-                monster_rect = self.current_perception_list[3][
-                    0
-                ]  # Premier monstre détecté
-
-                # Trouver l'instance réelle du monstre dans monsterList
-                for monster in self.maze.monsterList:
-                    if monster.rect == monster_rect:
-                        print(f"Optimisation contre monstre détecté à {monster.rect}")
-                        # Créer une nouvelle instance Fighting pour ce monstre
-                        battle_fighting = Fighting(monster)
-                        optimal_attrs = battle_fighting.optimize_player_attributes(
-                            self.player
-                        )
-                        self.player.set_attributes(optimal_attrs)
-                        break
-            else:
-                print("Aucun monstre détecté ! Utilisez 'P' d'abord.")
-            return
 
         if keys[K_ESCAPE]:
             self._running = False
