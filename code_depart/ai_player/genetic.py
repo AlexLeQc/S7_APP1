@@ -29,7 +29,6 @@
 # Code for Artificial Intelligence module
 # Adapted by Audrey Corbeil Therrien for Artificial Intelligence module
 import numpy as np
-from Constants import MAX_ATTRIBUTE
 
 
 class Genetic:
@@ -38,7 +37,15 @@ class Genetic:
     nbits = 0
     population = []
 
-    def __init__(self, num_params, pop_size, nbits):
+    def __init__(
+        self,
+        num_params,
+        pop_size,
+        nbits,
+        player,
+        min_attr_value=-1000,
+        max_attr_value=1000,
+    ):
         # Input:
         # - NUMPARAMS, the number of parameters to optimize.
         # - POPSIZE, the population size.
@@ -58,15 +65,21 @@ class Genetic:
         self.overallMaxFitnessRecord = np.zeros((self.num_generations,))
         self.avgMaxFitnessRecord = np.zeros((self.num_generations,))
         self.current_gen = 0
-        self.crossover_modulo = 0
+        self.crossover_modulo = 32
+        self.player = player
+        self.min_attr_value = min_attr_value
+        self.max_attr_value = max_attr_value
 
     def init_pop(self):
         # Initialize the population as a matrix, where each individual is a binary string.
         # Output:
         # - POPULATION, a binary matrix whose rows correspond to encoded individuals.
-        self.population = np.random.randint(
-            0, 2, (self.pop_size, self.num_params * self.nbits)
+        self.cvalues = np.random.randint(
+            self.min_attr_value,
+            self.max_attr_value + 1,
+            size=(self.pop_size, self.num_params),
         )
+        self.encode_individuals()
 
     def set_fit_fun(self, fun):
         # Set the fitness function
@@ -90,23 +103,31 @@ class Genetic:
         self.current_gen = 0
 
     def eval_fit(self):
-        new_fitness = np.zeros((self.pop_size, 1))
+        # Evaluate the fitness function
+        # Record the best individual and average of the current generation
+        # WARNING, number of arguments need to be adjusted if fitness function changes
+
+        self.fitness = np.zeros(self.pop_size)
 
         for i in range(self.pop_size):
-            new_fitness[i] = self.fit_fun(*self.cvalues[i, :])
+            self.player.set_attributes(self.cvalues[i])
+            rounds, score = self.fit_fun(self.player)
 
-        self.fitness = new_fitness
+            self.fitness[i] = score + 5 * rounds
 
-        if np.max(self.fitness) > self.bestIndividualFitness:
-            self.bestIndividualFitness = np.max(self.fitness)
-            best_mask = (self.fitness == np.max(self.fitness)).flatten()
-            self.bestIndividual = self.population[best_mask][0]
+        # The rest (best tracking, records) stays the same as before
+        current_max = np.max(self.fitness)
+        if current_max > self.bestIndividualFitness:
+            self.bestIndividualFitness = current_max
+            max_idx = np.argmax(self.fitness)
+            self.bestIndividual = self.population[max_idx].copy()
 
-        self.maxFitnessRecord[self.current_gen] = np.max(self.fitness)
+        self.maxFitnessRecord[self.current_gen] = current_max
         self.overallMaxFitnessRecord[self.current_gen] = self.bestIndividualFitness
         self.avgMaxFitnessRecord[self.current_gen] = np.mean(self.fitness)
 
     def print_progress(self):
+        # Prints the results of the current generation in the console
         print(
             "Generation no.%d: best fitness is %f, average is %f"
             % (
@@ -119,8 +140,23 @@ class Genetic:
 
     def get_best_individual(self):
         # Prints the best individual for all of the simulated generations
-        # TODO : Decode individual for better readability
-        return self.bestIndividual
+
+        decoded_values = []
+        for i in range(self.num_params):
+            start = i * self.nbits
+            end = start + self.nbits
+            bits_slice = self.bestIndividual[start:end][np.newaxis, :]
+
+            normalized = bin2ufloat(bits_slice, self.nbits)
+            value = (
+                normalized[0] * (self.max_attr_value - self.min_attr_value)
+                + self.min_attr_value
+            )
+            decoded_values.append(value)
+
+        result = np.round(np.array(decoded_values)).astype(int)
+
+        return result
 
     def encode_individuals(self):
         # Encode the population from a vector of continuous values to a binary string.
@@ -129,16 +165,17 @@ class Genetic:
         # - NBITS, the number of bits per indivual used for encoding.
         # Output:
         # - POPULATION, a binary matrix with each row encoding an individual.
-        # TODO: encode individuals into binary vectors
-        scaled_cvalues = (self.cvalues + MAX_ATTRIBUTE) / (2 * MAX_ATTRIBUTE)
-        encoded_params = []
-        for param_idx in range(self.num_params):
-            param_values = scaled_cvalues[:, param_idx]
-            encoded_param = ufloat2bin(param_values, self.nbits)
-            encoded_params.append(encoded_param)
 
-        # Concatène tous les paramètres
-        self.population = np.hstack(encoded_params)
+        bit_arrays = []
+        normalized_values = (self.cvalues - self.min_attr_value) / (
+            self.max_attr_value - self.min_attr_value
+        )
+
+        for param_idx in range(self.num_params):
+            bits = ufloat2bin(normalized_values[:, param_idx], self.nbits)
+            bit_arrays.append(bits)
+
+        self.population = np.concatenate(bit_arrays, axis=1)
 
     def decode_individuals(self):
         # Decode an individual from a binary string to a vector of continuous values.
@@ -147,57 +184,55 @@ class Genetic:
         # - NUMPARAMS, the number of parameters for an individual.
         # Output:
         # - CVALUES, a vector of continuous values representing the parameters.
-        # TODO: decode individuals from binary vectors
-        bits_per_param = self.nbits
+        if self.population.shape[1] != self.num_params * self.nbits:
+            raise ValueError(
+                f"Population bit length mismatch: expected {self.num_params * self.nbits} bits, "
+                f"got {self.population.shape[1]}"
+            )
+
+        # We'll collect the decoded values for each parameter
         decoded_params = []
 
-        for param_idx in range(self.num_params):
-            start_bit = param_idx * bits_per_param
-            end_bit = (param_idx + 1) * bits_per_param
-            param_bits = self.population[:, start_bit:end_bit]
-
-            # Décode et remet à l'échelle [-MAX_ATTRIBUTE, MAX_ATTRIBUTE]
-            decoded_param = bin2ufloat(param_bits, self.nbits)
-            scaled_param = decoded_param * (2 * MAX_ATTRIBUTE) - MAX_ATTRIBUTE
-            decoded_params.append(scaled_param.reshape(-1, 1))
-
-        self.cvalues = np.hstack(decoded_params)
-
-    def doSelection(self):
-        # Select pairs of individuals from the population.
-        # Input:
-        # - POPULATION, the binary matrix representing the population. Each row is an individual.
-        # - FITNESS, a vector of fitness values for the population.
-        # - NUMPAIRS, the number of pairs of individual to generate.
-        # Output:
-        # - PAIRS, a list of two ndarrays [IND1 IND2]  each encoding one member of the pair
-        # TODO: select pairs of individual in the population
-        num_pairs = self.pop_size // 2
-
-        selected_indices_1 = np.zeros(num_pairs, dtype=int)
-        selected_indices_2 = np.zeros(num_pairs, dtype=int)
-
-        tournament_size = 3
-
-        for i in range(num_pairs):
-            tournament_indices = np.random.choice(
-                self.pop_size, tournament_size, replace=False
+        for i in range(self.num_params):
+            start = i * self.nbits
+            end = start + self.nbits
+            bits_for_param = self.population[:, start:end]  # shape: (pop_size, nbits)
+            normalized = bin2ufloat(bits_for_param, self.nbits)  # shape: (pop_size,)
+            # Scale from [0, 1] → [-1000, 1000]
+            #   0   → -1000
+            #   1   → +1000
+            values = (
+                normalized * (self.max_attr_value - self.min_attr_value)
+                + self.min_attr_value
             )
-            tournament_fitness = self.fitness[tournament_indices]
-            winner_idx = tournament_indices[np.argmax(tournament_fitness)]
-            selected_indices_1[i] = winner_idx
+            decoded_params.append(values)
 
-            tournament_indices = np.random.choice(
-                self.pop_size, tournament_size, replace=False
-            )
-            tournament_fitness = self.fitness[tournament_indices]
-            winner_idx = tournament_indices[np.argmax(tournament_fitness)]
-            selected_indices_2[i] = winner_idx
+        self.cvalues = np.column_stack(decoded_params)
+        self.cvalues = np.round(self.cvalues).astype(int)
 
-        return [
-            self.population[selected_indices_1, :],
-            self.population[selected_indices_2, :],
-        ]
+    def doSelection(self, numpairs=None):
+        """
+        Roulette wheel selection (fitness proportional).
+        Returns [parents_a, parents_b] each of shape (numpairs, nbits)
+        """
+        if numpairs is None:
+            numpairs = self.pop_size // 2
+
+        # Make sure fitness is non-negative
+        shifted_fitness = self.fitness - np.min(self.fitness) + 1e-10
+        probs = shifted_fitness / np.sum(shifted_fitness)
+        cumprobs = np.cumsum(probs)
+
+        # Select 2 × numpairs individuals
+        r = np.random.rand(2 * numpairs)
+        selected_idx = np.searchsorted(cumprobs, r)
+
+        # Split into two parent groups
+        parents = self.population[selected_idx]
+        parents_a = parents[:numpairs]
+        parents_b = parents[numpairs:]
+
+        return [parents_a, parents_b]
 
     def doCrossover(self, pairs):
         # Perform a crossover operation between two individuals, with a given probability
@@ -210,105 +245,85 @@ class Genetic:
         #
         # Output:
         # - POPULATION, a binary matrix with each row encoding an individual.
-        # TODO: Perform a crossover between two individuals
-        ind1 = pairs[0]
-        ind2 = pairs[1]
-        num_pairs = ind1.shape[0]
 
-        offspring = np.zeros((self.pop_size, self.num_params * self.nbits))
+        parentA = pairs[0]  # shape (numpairs, total_bits)
+        parentB = pairs[1]  # shape (numpairs, total_bits)
+
+        num_pairs = parentA.shape[0]
+        total_bits = parentA.shape[1]
+
+        # We'll create two children per pair → full new population
+        offspring = np.zeros((2 * num_pairs, total_bits), dtype=parentA.dtype)
 
         for i in range(num_pairs):
-            if np.random.rand() < self.crossover_prob:
-                if self.crossover_modulo > 0:
-                    possible_points = np.arange(
-                        self.crossover_modulo,
-                        self.num_params * self.nbits,
-                        self.crossover_modulo,
-                    )
-                    if len(possible_points) > 0:
-                        crossover_point = np.random.choice(possible_points)
-                    else:
-                        crossover_point = np.random.randint(
-                            1, self.num_params * self.nbits
-                        )
-                else:
-                    crossover_point = np.random.randint(1, self.num_params * self.nbits)
+            p1 = parentA[i]
+            p2 = parentB[i]
 
-                offspring[i * 2, :] = np.concatenate(
-                    [ind1[i, :crossover_point], ind2[i, crossover_point:]]
+            # Decide whether to crossover this pair
+            if np.random.rand() >= self.crossover_prob:
+                # No crossover → children = copies of parents
+                offspring[2 * i] = p1.copy()
+                offspring[2 * i + 1] = p2.copy()
+                continue
+
+            # Choose crossover point
+            if self.crossover_modulo > 1:
+                # Only allow cuts at positions that are multiples of crossover_modulo
+                possible_points = np.arange(
+                    self.crossover_modulo, total_bits, self.crossover_modulo
                 )
-                offspring[i * 2 + 1, :] = np.concatenate(
-                    [ind2[i, :crossover_point], ind1[i, crossover_point:]]
-                )
+                if len(possible_points) == 0:
+                    point = np.random.randint(1, total_bits)
+                else:
+                    point = np.random.choice(possible_points)
             else:
-                offspring[i * 2, :] = ind1[i, :]
-                offspring[i * 2 + 1, :] = ind2[i, :]
+                # Normal single-point: anywhere except ends
+                point = np.random.randint(1, total_bits)
+
+            # Create children
+            offspring[2 * i] = np.concatenate((p1[:point], p2[point:]))
+            offspring[2 * i + 1] = np.concatenate((p2[:point], p1[point:]))
 
         return offspring
 
     def doMutation(self):
-        if np.std(self.fitness) < 1.0:
-            current_prob = self.mutation_prob * 3
-        else:
-            current_prob = self.mutation_prob
+        # Perform a mutation operation over the entire population.
+        # Input:
+        # - POPULATION, the binary matrix representing the population. Each row is an individual.
+        # - MUTATION_PROB, the mutation probability.
+        # Output:
+        # - POPULATION, the new population.
 
-        mutation_mask = (
-            np.random.rand(self.pop_size, self.num_params * self.nbits) < current_prob
-        )
-        self.population = np.logical_xor(
-            self.population.astype(bool), mutation_mask
-        ).astype(int)
+        """
+        Bit-flip mutation: each bit in the population has an independent
+        probability `self.mutation_prob` of being flipped (0 → 1 or 1 → 0).
+
+        Modifies self.population in place.
+        """
+        if self.mutation_prob <= 0:
+            return  # no mutation
+
+        # Create a random mask with the same shape as population
+        # True where we should flip a bit
+        flip_mask = np.random.random(self.population.shape) < self.mutation_prob
+
+        # Flip the bits where mask is True (0→1, 1→0)
+        self.population[flip_mask] = 1 - self.population[flip_mask]
 
     def new_gen(self):
-        new_cvalues = np.zeros_like(self.cvalues)
+        # Remember the current best individuals before we replace the population
+        elite_count = 3
+        if self.current_gen > 0 and elite_count > 0:
+            elite_idx = np.argsort(self.fitness)[-elite_count:]
+            elites = self.population[elite_idx].copy()
 
-        elite_size = max(5, self.pop_size // 10)
-        elite_indices = np.argsort(self.fitness.flatten())[-elite_size:]
+        pairs = self.doSelection()
+        self.population = self.doCrossover(pairs)
+        self.doMutation()
 
-        for i in range(elite_size):
-            new_cvalues[i] = self.cvalues[elite_indices[i]]
-
-        current_idx = elite_size
-        while current_idx < self.pop_size:
-            p1_idx = self.tournament_selection()
-            p2_idx = self.tournament_selection()
-
-            parent1 = self.cvalues[p1_idx]
-            parent2 = self.cvalues[p2_idx]
-
-            if np.random.rand() < self.crossover_prob:
-                alpha = np.random.rand(self.num_params)
-                offspring1 = alpha * parent1 + (1 - alpha) * parent2
-                offspring2 = (1 - alpha) * parent1 + alpha * parent2
-            else:
-                offspring1 = parent1.copy()
-                offspring2 = parent2.copy()
-
-            if current_idx < self.pop_size:
-                new_cvalues[current_idx] = offspring1
-                current_idx += 1
-            if current_idx < self.pop_size:
-                new_cvalues[current_idx] = offspring2
-                current_idx += 1
-
-        self.cvalues = new_cvalues
-        self.encode_individuals()
-
-        elite_mask = np.zeros(self.pop_size, dtype=bool)
-        elite_mask[:elite_size] = True
-
-        current_prob = self.mutation_prob
-        if np.std(self.fitness) < 5.0:
-            current_prob = self.mutation_prob * 2
-
-        mutation_mask = (
-            np.random.rand(self.pop_size, self.num_params * self.nbits) < current_prob
-        )
-        mutation_mask[elite_mask, :] = False
-
-        self.population = np.logical_xor(
-            self.population.astype(bool), mutation_mask
-        ).astype(int)
+        # Insert elites back (replace last individuals)
+        if self.current_gen > 0 and elite_count > 0:
+            self.population[-elite_count:] = elites
 
         self.current_gen += 1
 

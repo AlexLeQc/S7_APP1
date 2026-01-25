@@ -245,6 +245,79 @@ class Genetic:
         self.doMutation()
         self.current_gen += 1
 
+    def run(self, show_progress=False, save_path=None):
+        """Run the GA for the configured number of generations and return a
+        serializable results dictionary. If `save_path` is provided, the
+        dictionary is written to that JSON file."""
+        for i in range(self.num_generations):
+            self.decode_individuals()
+            self.eval_fit()
+            if show_progress:
+                self.print_progress()
+            if i < self.num_generations - 1:
+                self.new_gen()
+
+        results = {
+            "params": {
+                "num_params": int(self.num_params),
+                "pop_size": int(self.pop_size),
+                "nbits": int(self.nbits),
+                "num_generations": int(self.num_generations),
+                "mutation_prob": float(self.mutation_prob),
+                "crossover_prob": float(self.crossover_prob),
+            },
+            "maxFitnessRecord": list(np.array(self.maxFitnessRecord).astype(float)),
+            "overallMaxFitnessRecord": list(
+                np.array(self.overallMaxFitnessRecord).astype(float)
+            ),
+            "avgMaxFitnessRecord": list(
+                np.array(self.avgMaxFitnessRecord).astype(float)
+            ),
+            "bestIndividual": (
+                self.bestIndividual.tolist()
+                if hasattr(self.bestIndividual, "tolist")
+                else self.bestIndividual
+            ),
+            "bestIndividualFitness": float(self.bestIndividualFitness),
+            "final_cvalues": [list(map(float, row)) for row in np.array(self.cvalues)],
+            "final_population": [
+                list(map(int, row)) for row in np.array(self.population)
+            ],
+            "fitness": list(np.array(self.fitness).flatten().astype(float)),
+        }
+
+        if save_path:
+            self.save_results(save_path, results)
+
+        return results
+
+    def save_results(self, path, results=None):
+        import json
+        import os
+
+        if results is None:
+            results = {
+                "params": {
+                    "num_params": int(self.num_params),
+                    "pop_size": int(self.pop_size),
+                    "nbits": int(self.nbits),
+                    "num_generations": int(self.num_generations),
+                    "mutation_prob": float(self.mutation_prob),
+                    "crossover_prob": float(self.crossover_prob),
+                },
+                "final_cvalues": [
+                    list(map(float, row)) for row in np.array(self.cvalues)
+                ],
+                "final_population": [
+                    list(map(int, row)) for row in np.array(self.population)
+                ],
+                "fitness": list(np.array(self.fitness).flatten().astype(float)),
+            }
+
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2)
+
 
 # Binary-Float conversion functions
 # usage: [BVALUE] = ufloat2bin(CVALUE, NBITS)
