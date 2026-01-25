@@ -5,7 +5,7 @@ import ai_player.genetic as genetic
 
 
 class Fighting:
-    def __init__(self, monster, pop_size=200, nbits=16):
+    def __init__(self, monster, pop_size=250, nbits=16):
         self.monster = monster
         self.player = None
 
@@ -17,7 +17,7 @@ class Fighting:
         self.ga.init_pop()
 
         self.ga.set_sim_parameters(
-            num_generations=500, mutation_prob=0.05, crossover_prob=0.95
+            num_generations=2000, mutation_prob=0.06, crossover_prob=0.94
         )
         self.ga.set_fit_fun(self.fitness_function)
 

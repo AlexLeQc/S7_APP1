@@ -119,5 +119,5 @@ class AIController:
             # Aucun monstre en vue, réinitialiser
             self.is_optimized_for_current_monster = False
             self.optimization_complete = False
-            self.is_optimizing = Falsete = False
+            self.is_optimizing = False
             self.is_optimizing = False
