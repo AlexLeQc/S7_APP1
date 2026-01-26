@@ -15,11 +15,6 @@ class Fighting:
         self.stagnation_counter = 0
         self.last_best_rounds = 0
 
-    def fitness_function(self, *args):
-        # Cette fonction n'est plus utilisée avec la nouvelle approche
-        # Le fitness est maintenant calculé directement dans eval_fit()
-        pass
-
     def optimize_player_attributes(self, player):
         self.player = player
 
@@ -31,7 +26,7 @@ class Fighting:
 
         # Mutation ajustée : ~1 bit par individu pour un génome de 144 bits
         self.ga.set_sim_parameters(
-            num_generations=1000, mutation_prob=0.005, crossover_prob=0.4
+            num_generations=1000, mutation_prob=0.005, crossover_prob=0.5
         )
         self.ga.set_fit_fun(self.monster.mock_fight)
 
