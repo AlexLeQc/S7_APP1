@@ -124,6 +124,19 @@ class App:
         if instruction == "DOWN":
             self.move_player_down()
 
+        if instruction == "UP_LEFT":
+            self.move_player_up()
+            self.move_player_left()
+        if instruction == "UP_RIGHT":
+            self.move_player_up()
+            self.move_player_right()
+        if instruction == "DOWN_LEFT":
+            self.move_player_down()
+            self.move_player_left()
+        if instruction == "DOWN_RIGHT":
+            self.move_player_down()
+            self.move_player_right()
+
     def on_collision(self):
         return (
             self.on_wall_collision()
