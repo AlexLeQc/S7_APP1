@@ -1,5 +1,5 @@
 import math
-from enum import Enum, IntEnum
+from enum import Enum
 
 import numpy as np
 from Constants import *
@@ -15,14 +15,6 @@ class AgentState(Enum):
     NAVIGATING = 2
     DOOR_INTERACTION = 3
     COMBAT = 4
-
-
-class PerceptionType(IntEnum):
-    WALLS = 0
-    OBSTACLES = 1
-    ITEMS = 2
-    ENEMIES = 3
-    DOORS = 4
 
 
 class AiController:
@@ -55,12 +47,12 @@ class AiController:
 
         elif self.state == AgentState.NAVIGATING:
             self._compute_movement(perception)
-            if perception[PerceptionType.DOORS]:
+            if perception[4]:
                 self.state = AgentState.DOOR_INTERACTION
-            elif perception[PerceptionType.ENEMIES]:
+            elif perception[3]:
                 self.state = AgentState.COMBAT
                 self.combat_optimized = False
-                self.current_enemy = perception[PerceptionType.ENEMIES][0]
+                self.current_enemy = perception[3][0]
 
         elif self.state == AgentState.DOOR_INTERACTION:
             self._handle_door()
@@ -87,9 +79,7 @@ class AiController:
         norm = np.linalg.norm(direction)
         unit_dir = (direction[0] / norm, direction[1] / norm) if norm != 0 else (0, 0)
 
-        obstacles = (
-            perception[PerceptionType.OBSTACLES] + perception[PerceptionType.WALLS]
-        )
+        obstacles = perception[1] + perception[0]
         dist, angle = nearest_obstacle_info(
             self.player.get_rect().center, obstacles, unit_dir, 20
         )
@@ -111,7 +101,7 @@ class AiController:
             self.maze.unlock_door(key)
 
     def _engage_combat(self, perception):
-        enemies = perception[PerceptionType.ENEMIES]
+        enemies = perception[3]
         if not enemies:
             print("Combat terminé")
             self.state = AgentState.NAVIGATING
