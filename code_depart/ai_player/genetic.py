@@ -65,7 +65,8 @@ class Genetic:
         self.overallMaxFitnessRecord = np.zeros((self.num_generations,))
         self.avgMaxFitnessRecord = np.zeros((self.num_generations,))
         self.current_gen = 0
-        self.crossover_modulo = 32
+        # ******Mutation modifier suite à la défense de la problématique*****
+        self.crossover_modulo = 12
         self.player = player
         self.min_attr_value = min_attr_value
         self.max_attr_value = max_attr_value
@@ -190,17 +191,14 @@ class Genetic:
                 f"got {self.population.shape[1]}"
             )
 
-        # We'll collect the decoded values for each parameter
         decoded_params = []
 
         for i in range(self.num_params):
             start = i * self.nbits
             end = start + self.nbits
-            bits_for_param = self.population[:, start:end]  # shape: (pop_size, nbits)
-            normalized = bin2ufloat(bits_for_param, self.nbits)  # shape: (pop_size,)
-            # Scale from [0, 1] → [-1000, 1000]
-            #   0   → -1000
-            #   1   → +1000
+            bits_for_param = self.population[:, start:end]
+            normalized = bin2ufloat(bits_for_param, self.nbits)
+
             values = (
                 normalized * (self.max_attr_value - self.min_attr_value)
                 + self.min_attr_value
@@ -211,129 +209,69 @@ class Genetic:
         self.cvalues = np.round(self.cvalues).astype(int)
 
     def doSelection(self, numpairs=None):
-        """
-        Roulette wheel selection (fitness proportional).
-        Returns [parents_a, parents_b] each of shape (numpairs, nbits)
-        """
         if numpairs is None:
             numpairs = self.pop_size // 2
 
-        # Make sure fitness is non-negative
-        shifted_fitness = self.fitness - np.min(self.fitness) + 1e-10
-        probs = shifted_fitness / np.sum(shifted_fitness)
-        cumprobs = np.cumsum(probs)
+        min_fit = np.min(self.fitness)
+        adj_fitness = self.fitness.flatten() - min_fit + 1e-8
+        total = np.sum(adj_fitness)
+        if total == 0:
+            probas = np.ones(self.pop_size) / self.pop_size
+        else:
+            probas = adj_fitness / total
 
-        # Select 2 × numpairs individuals
-        r = np.random.rand(2 * numpairs)
-        selected_idx = np.searchsorted(cumprobs, r)
-
-        # Split into two parent groups
-        parents = self.population[selected_idx]
-        parents_a = parents[:numpairs]
-        parents_b = parents[numpairs:]
-
+        idx_a = np.random.choice(self.pop_size, numpairs, p=probas)
+        idx_b = np.random.choice(self.pop_size, numpairs, p=probas)
+        parents_a = self.population[idx_a]
+        parents_b = self.population[idx_b]
         return [parents_a, parents_b]
 
     def doCrossover(self, pairs):
-        # Perform a crossover operation between two individuals, with a given probability
-        # and constraint on the cutting point.
-        # Input:
-        # - PAIRS, a list of two ndarrays [IND1 IND2] each encoding one member of the pair
-        # - CROSSOVER_PROB, the crossover probability.
-        # - CROSSOVER_MODULO, a modulo-constraint on the cutting point. For example, to only allow cutting
-        #   every 4 bits, set value to 4.
-        #
-        # Output:
-        # - POPULATION, a binary matrix with each row encoding an individual.
-
-        parentA = pairs[0]  # shape (numpairs, total_bits)
-        parentB = pairs[1]  # shape (numpairs, total_bits)
-
-        num_pairs = parentA.shape[0]
-        total_bits = parentA.shape[1]
-
-        # We'll create two children per pair → full new population
-        offspring = np.zeros((2 * num_pairs, total_bits), dtype=parentA.dtype)
-
-        for i in range(num_pairs):
-            p1 = parentA[i]
-            p2 = parentB[i]
-
-            # Decide whether to crossover this pair
-            if np.random.rand() >= self.crossover_prob:
-                # No crossover → children = copies of parents
-                offspring[2 * i] = p1.copy()
-                offspring[2 * i + 1] = p2.copy()
-                continue
-
-            # Choose crossover point
-            if self.crossover_modulo > 1:
-                # Only allow cuts at positions that are multiples of crossover_modulo
-                possible_points = np.arange(
-                    self.crossover_modulo, total_bits, self.crossover_modulo
-                )
-                if len(possible_points) == 0:
-                    point = np.random.randint(1, total_bits)
+        parentA, parentB = pairs
+        n = parentA.shape[0]
+        bitlen = parentA.shape[1]
+        children = np.empty((2 * n, bitlen), dtype=parentA.dtype)
+        for i in range(n):
+            if np.random.random() < self.crossover_prob:
+                if self.crossover_modulo > 1:
+                    pts = np.arange(
+                        self.crossover_modulo, bitlen, self.crossover_modulo
+                    )
+                    cut = (
+                        np.random.choice(pts)
+                        if len(pts) > 0
+                        else np.random.randint(1, bitlen)
+                    )
                 else:
-                    point = np.random.choice(possible_points)
+                    cut = np.random.randint(1, bitlen)
+                children[2 * i] = np.concatenate([parentA[i, :cut], parentB[i, cut:]])
+                children[2 * i + 1] = np.concatenate(
+                    [parentB[i, :cut], parentA[i, cut:]]
+                )
             else:
-                # Normal single-point: anywhere except ends
-                point = np.random.randint(1, total_bits)
-
-            # Create children
-            offspring[2 * i] = np.concatenate((p1[:point], p2[point:]))
-            offspring[2 * i + 1] = np.concatenate((p2[:point], p1[point:]))
-
-        return offspring
+                children[2 * i] = parentA[i]
+                children[2 * i + 1] = parentB[i]
+        return children
 
     def doMutation(self):
-        # Perform a mutation operation over the entire population.
-        # Input:
-        # - POPULATION, the binary matrix representing the population. Each row is an individual.
-        # - MUTATION_PROB, the mutation probability.
-        # Output:
-        # - POPULATION, the new population.
-
-        """
-        Bit-flip mutation: each bit in the population has an independent
-        probability `self.mutation_prob` of being flipped (0 → 1 or 1 → 0).
-
-        Modifies self.population in place.
-        """
-        if self.mutation_prob <= 0:
-            return  # no mutation
-
-        # Create a random mask with the same shape as population
-        # True where we should flip a bit
-        flip_mask = np.random.random(self.population.shape) < self.mutation_prob
-
-        # Flip the bits where mask is True (0→1, 1→0)
-        self.population[flip_mask] = 1 - self.population[flip_mask]
+        if self.mutation_prob > 0:
+            mask = np.random.rand(*self.population.shape) < self.mutation_prob
+            self.population = np.where(mask, 1 - self.population, self.population)
 
     def new_gen(self):
-        # Remember the current best individuals before we replace the population
-        elite_count = 3
-        if self.current_gen > 0 and elite_count > 0:
-            elite_idx = np.argsort(self.fitness)[-elite_count:]
-            elites = self.population[elite_idx].copy()
+        nb_elites = 3
+        if self.current_gen > 0 and nb_elites > 0:
+            elite_idx = np.argsort(self.fitness)[-nb_elites:]
+            elite_indivs = self.population[elite_idx].copy()
 
         pairs = self.doSelection()
         self.population = self.doCrossover(pairs)
         self.doMutation()
 
-        # Insert elites back (replace last individuals)
-        if self.current_gen > 0 and elite_count > 0:
-            self.population[-elite_count:] = elites
+        if self.current_gen > 0 and nb_elites > 0:
+            self.population[-nb_elites:] = elite_indivs
 
         self.current_gen += 1
-
-    def tournament_selection(self):
-        tournament_size = max(3, self.pop_size // 20)
-        tournament_indices = np.random.choice(
-            self.pop_size, tournament_size, replace=False
-        )
-        tournament_fitness = self.fitness[tournament_indices]
-        return tournament_indices[np.argmax(tournament_fitness)]
 
 
 # Binary-Float conversion functions
