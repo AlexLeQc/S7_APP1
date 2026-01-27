@@ -1,5 +1,7 @@
+import math
+
 import pygame
-from ai_player.controller import AIController
+from ai_player.controller import AiController
 from ai_player.fighting import Fighting
 from ai_player.systeme_expert import SolvingDoors
 from Constants import *
@@ -25,7 +27,7 @@ class App:
         self.timer = 0.0
         self.player = Player()
         self.maze = Maze(mazefile)
-        self.ai_controller = AIController(mazefile, self.maze, self.player)
+        self.controller = AiController(mazefile, self.maze, self.player)
         self.current_perception_list = None
 
     def on_init(self):
@@ -56,7 +58,6 @@ class App:
             self.fighting = Fighting(self.maze.monsterList[0])
         else:
             self.fighting = None
-        self.ai_controller.calculate_path_to_exit()
 
     def on_keyboard_input(self, keys):
         if keys[K_RIGHT] or keys[K_d]:
@@ -112,30 +113,68 @@ class App:
 
     # FONCTION À Ajuster selon votre format d'instruction
     def on_AI_input(self, instruction):
-        if instruction == "RIGHT":
-            self.move_player_right()
+        self.move_player(instruction)
 
-        if instruction == "LEFT":
-            self.move_player_left()
+    def move_player(self, direction_vector):
+        dx, dy = direction_vector
 
-        if instruction == "UP":
-            self.move_player_up()
+        # No movement input
+        if dx == 0 and dy == 0:
+            return
 
-        if instruction == "DOWN":
-            self.move_player_down()
+        # Normalize direction vector
+        length = math.hypot(dx, dy)
 
-        if instruction == "UP_LEFT":
-            self.move_player_up()
-            self.move_player_left()
-        if instruction == "UP_RIGHT":
-            self.move_player_up()
-            self.move_player_right()
-        if instruction == "DOWN_LEFT":
-            self.move_player_down()
-            self.move_player_left()
-        if instruction == "DOWN_RIGHT":
-            self.move_player_down()
-            self.move_player_right()
+        norm_dx = dx / length
+        norm_dy = dy / length
+
+        velocity_x = norm_dx * self.player.speed
+        velocity_y = norm_dy * self.player.speed
+
+        # Move on X axis
+        self.player.x += velocity_x
+        if self.on_collision():
+            self.player.x -= velocity_x
+
+        # Move on Y axis
+        self.player.y += velocity_y
+        if self.on_collision():
+            self.player.y -= velocity_y
+
+    def move_player_towards_target(self, target_x: float, target_y: float):
+        player_x, player_y = self.player.get_position()
+
+        delta_x = target_x - player_x
+        delta_y = target_y - player_y
+
+        distance = math.hypot(delta_x, delta_y)
+
+        # If already at target (or extremely close)
+        if distance == 0:
+            return
+
+        # If target is farther than one step → move normally
+        if distance > self.player.speed:
+            direction_x = delta_x / distance
+            direction_y = delta_y / distance
+
+            velocity_x = direction_x * self.player.speed
+            velocity_y = direction_y * self.player.speed
+
+            # Move on X axis
+            self.player.x += velocity_x
+            if self.on_collision():
+                self.player.x -= velocity_x
+
+            # Move on Y axis
+            self.player.y += velocity_y
+            if self.on_collision():
+                self.player.y -= velocity_y
+
+        else:
+            # Target reachable in one move → snap to target
+            self.player.x = target_x
+            self.player.y = target_y
 
     def on_collision(self):
         return (
@@ -259,8 +298,8 @@ class App:
             pygame.event.pump()
             keys = pygame.key.get_pressed()
             self.on_keyboard_input(keys)
-            next_move = self.ai_controller.get_next_move_towards_exit()
-            self.on_AI_input(next_move)
+            self.controller.update()
+            self.on_AI_input(self.controller.movement_vector)
             if self.on_coin_collision():
                 self.score += 1
             if self.on_treasure_collision():

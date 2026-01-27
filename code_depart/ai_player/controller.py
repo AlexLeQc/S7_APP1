@@ -1,123 +1,171 @@
+import math
+from enum import Enum, IntEnum
+
+import numpy as np
+from Constants import *
+
 from .fighting import Fighting
+from .fuzzyObstacleAvoidance import FuzzyObstacleAvoidance
 from .planification import find_path_to_exit
 from .systeme_expert import SolvingDoors
 
 
-class AIController:
-    def __init__(self, maze_file_path, maze, player):
-        self.maze_file = maze_file_path
+class AgentState(Enum):
+    START = 1
+    NAVIGATING = 2
+    DOOR_INTERACTION = 3
+    COMBAT = 4
+
+
+class PerceptionType(IntEnum):
+    WALLS = 0
+    OBSTACLES = 1
+    ITEMS = 2
+    ENEMIES = 3
+    DOORS = 4
+
+
+class AiController:
+    def __init__(self, maze_file, maze, player):
+        self.maze_file = maze_file
         self.maze = maze
         self.player = player
-        self.path_index = 0
+
+        self.fuzzy_navigation = FuzzyObstacleAvoidance()
+        self.state = AgentState.START
+        self.path = []
+        self.path_step = 0
+
         self.door_solver = SolvingDoors()
-        self.current_perception = None
-        self.is_optimizing = False  # Variable pour suivre l'état
-        self.optimization_complete = False
-        self.is_optimized_for_monster = False
-        self.last_optimization_position = None
+        self.combat_optimized = False
+        self.current_enemy = None
+        self.movement_vector = (0, 0)
 
-    def calculate_path_to_exit(self):
-        self.current_path = find_path_to_exit(self.maze_file)
-        self.path_index = 0
-        return self.current_path
+    def initialize_path(self):
+        self.path = find_path_to_exit(self.maze_file)
+        self.path_step = 0
+        self.state = AgentState.NAVIGATING
+        print("Chemin initialisé")
 
-    def get_next_move_towards_exit(self):
-        if not self.current_path or self.path_index >= len(self.current_path):
-            self.is_auto_moving = False
-            return None
+    def update(self):
+        perception = self.maze.make_perception_list(self.player, None)
 
-        self.update_perception_and_optimize()
+        if self.state == AgentState.START:
+            self.initialize_path()
 
-        door_action = self.check_and_solve_doors()
-        if door_action:
-            return door_action
+        elif self.state == AgentState.NAVIGATING:
+            self._compute_movement(perception)
+            if perception[PerceptionType.DOORS]:
+                self.state = AgentState.DOOR_INTERACTION
+            elif perception[PerceptionType.ENEMIES]:
+                self.state = AgentState.COMBAT
+                self.combat_optimized = False
+                self.current_enemy = perception[PerceptionType.ENEMIES][0]
 
-        player_center_x = self.player.x + (self.player.size_x / 2)
-        player_center_y = self.player.y + (self.player.size_y / 2)
+        elif self.state == AgentState.DOOR_INTERACTION:
+            self._handle_door()
+            self.state = AgentState.NAVIGATING
 
-        target_pos = self.current_path[self.path_index]
+        elif self.state == AgentState.COMBAT:
+            self._engage_combat(perception)
 
-        target_center_x = (target_pos[1] + 0.5) * self.maze.tile_size_x
-        target_center_y = (target_pos[0] + 0.5) * self.maze.tile_size_y
+    def _compute_movement(self, perception):
+        if not self.path or self.path_step >= len(self.path):
+            self.movement_vector = (0, 0)
+            return
 
-        dist_x = target_center_x - player_center_x
-        dist_y = target_center_y - player_center_y
+        target_cell = self.path[self.path_step]
+        target_pos = grid_to_world(target_cell, self.maze)
+        player_pos = self.player.get_position()
 
-        tolerance = 5.0
+        if reached_target(target_pos, player_pos, tolerance=20):
+            self.path_step += 1
+            self.movement_vector = (0, 0)
+            return
 
-        if abs(dist_x) <= tolerance and abs(dist_y) <= tolerance:
-            self.path_index += 1
-            if self.path_index >= len(self.current_path):
-                print("Arrivé à destination!")
-                self.is_auto_moving = False
-                return None
-            target_pos = self.current_path[self.path_index]
+        direction = (target_pos[0] - player_pos[0], target_pos[1] - player_pos[1])
+        norm = np.linalg.norm(direction)
+        unit_dir = (direction[0] / norm, direction[1] / norm) if norm != 0 else (0, 0)
 
-            target_center_x = (target_pos[1] + 0.5) * self.maze.tile_size_x
-            target_center_y = (target_pos[0] + 0.5) * self.maze.tile_size_y
-            dist_x = target_center_x - player_center_x
-            dist_y = target_center_y - player_center_y
+        obstacles = (
+            perception[PerceptionType.OBSTACLES] + perception[PerceptionType.WALLS]
+        )
+        dist, angle = nearest_obstacle_info(
+            self.player.get_rect().center, obstacles, unit_dir, 20
+        )
+        steering_adjust = self.fuzzy_navigation.compute_steering(dist, angle)
 
-        if abs(dist_x) > abs(dist_y):
-            return "RIGHT" if dist_x > 0 else "LEFT"
-        else:
-            return "DOWN" if dist_y > 0 else "UP"
+        self.movement_vector = rotate_vector_2d(unit_dir, steering_adjust)
 
-    def check_and_solve_doors(self):
-        door_states = self.maze.look_at_door(self.player, None)
+    def _handle_door(self):
+        doors = self.maze.look_at_door(self.player, None)
+        if not doors:
+            return
 
-        if door_states:
-            door_state = door_states[0]
-            print(f"Résolution de: {door_state}")
+        door = doors[0]
+        print(f"Interaction porte: {door}")
 
-            cle = self.door_solver.solve_door(door_state)
+        key = self.door_solver.solve_door(door)
+        if key:
+            print(f"Clé utilisée: {key}")
+            self.maze.unlock_door(key)
 
-            if cle:
-                print(f"Clé trouvé: {cle}")
-                self.maze.unlock_door(cle)
+    def _engage_combat(self, perception):
+        enemies = perception[PerceptionType.ENEMIES]
+        if not enemies:
+            print("Combat terminé")
+            self.state = AgentState.NAVIGATING
+            self.current_enemy = None
+            self.movement_vector = (0, 0)
+            return
 
-        return None
+        if not self.combat_optimized:
+            enemy = enemies[0]
+            print(f"Combat contre {enemy}")
+            fight = Fighting(enemy)
+            best_attributes = fight.optimize_player_attributes(self.player)
+            self.player.set_attributes(best_attributes)
+            self.combat_optimized = True
+            print("Joueur optimisé pour le combat")
 
-    def update_perception_and_optimize(self):
-        """Met à jour la perception et optimise contre les monstres détectés"""
-        self.current_perception = self.maze.make_perception_list(self.player, None)
 
-        if self.current_perception and len(self.current_perception[3]) > 0:
-            # Il y a des monstres dans la perception
-            monster_rect = self.current_perception[3][0]  # Premier monstre détecté
+def grid_to_world(cell, maze):
+    row, col = cell
+    x = col * maze.tile_size_x + maze.tile_size_x / 2
+    y = row * maze.tile_size_y + maze.tile_size_y / 2
+    return (x, y)
 
-            # Vérifier si on a déjà optimisé pour ce monstre à cette position
-            current_pos = (int(self.player.x), int(self.player.y))
 
-            if (
-                not self.is_optimized_for_current_monster
-                or self.last_optimization_position != current_pos
-            ):
-                # Trouver l'instance réelle du monstre
-                for monster in self.maze.monsterList:
-                    if monster.rect == monster_rect:
-                        if not self.is_optimizing and not self.optimization_complete:
-                            print(
-                                f"🤖 IA détecte monstre à {monster.rect}, lancement optimisation..."
-                            )
-                            self.is_optimizing = True
+def reached_target(target, position, tolerance=2):
+    return math.hypot(target[0] - position[0], target[1] - position[1]) < tolerance
 
-                            # Optimisation automatique
-                            battle_fighting = Fighting(monster)
-                            optimal_attrs = battle_fighting.optimize_player_attributes(
-                                self.player
-                            )
-                            self.player.set_attributes(optimal_attrs)
 
-                            self.is_optimizing = False
-                            self.optimization_complete = True
-                            self.is_optimized_for_current_monster = True
-                            self.last_optimization_position = current_pos
-                            print("✅ IA optimisée pour ce monstre !")
-                        break
-        else:
-            # Aucun monstre en vue, réinitialiser
-            self.is_optimized_for_current_monster = False
-            self.optimization_complete = False
-            self.is_optimizing = False
-            self.is_optimizing = False
+def rotate_vector_2d(vector, angle_deg):
+    theta = np.radians(angle_deg)
+    cos_t, sin_t = np.cos(theta), np.sin(theta)
+    return np.array(
+        [vector[0] * cos_t - vector[1] * sin_t, vector[0] * sin_t + vector[1] * cos_t]
+    )
+
+
+def nearest_obstacle_info(player_pos, obstacles, forward_dir, player_radius):
+    min_dist = float("inf")
+    closest = None
+
+    for obs in obstacles:
+        dx = obs.centerx - player_pos[0]
+        dy = obs.centery - player_pos[1]
+        edge_dist = max(0, math.hypot(dx, dy) - (player_radius + obs.width / 2))
+        if edge_dist < min_dist:
+            min_dist = edge_dist
+            closest = (dx, dy)
+
+    if closest is None:
+        return float("inf"), 0.0
+
+    angle_forward = math.atan2(forward_dir[1], forward_dir[0])
+    angle_to_obs = math.atan2(closest[1], closest[0])
+    relative_angle = math.degrees(angle_to_obs - angle_forward)
+    relative_angle = (relative_angle + 180) % 360 - 180
+
+    return min_dist, relative_angle
