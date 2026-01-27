@@ -65,7 +65,7 @@ class Genetic:
         self.overallMaxFitnessRecord = np.zeros((self.num_generations,))
         self.avgMaxFitnessRecord = np.zeros((self.num_generations,))
         self.current_gen = 0
-        # ******Mutation modifier suite à la défense de la problématique*****
+        # ******Mutation modifiee suite à la défense de la problématique*****
         self.crossover_modulo = 12
         self.player = player
         self.min_attr_value = min_attr_value

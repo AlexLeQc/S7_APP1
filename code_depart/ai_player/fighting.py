@@ -23,7 +23,7 @@ class Fighting:
         )
         self.ga.init_pop()
 
-        # ******Mutation modifier suite à la défense de la problématique*****
+        # ******Mutation modifiee suite à la défense de la problématique*****
         self.ga.set_sim_parameters(
             num_generations=1000, mutation_prob=0.01, crossover_prob=0.8
         )
